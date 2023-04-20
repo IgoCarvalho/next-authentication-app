@@ -1,10 +1,14 @@
 import { ChangeEvent, FormEvent, useState } from 'react';
 
+import { useAuth } from '@/hooks/useAuth';
+
 export default function Home() {
   const [form, setForm] = useState({
     email: '',
     password: '',
   });
+
+  const { signIn } = useAuth();
 
   function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
     const { name, value } = event.target;
@@ -12,10 +16,10 @@ export default function Home() {
     setForm((oldForm) => ({ ...oldForm, [name]: value }));
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
 
-    console.log(form);
+    await signIn(form);
   }
 
   return (
