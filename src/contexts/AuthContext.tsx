@@ -1,7 +1,8 @@
-import { useRouter } from 'next/router';
-import { ReactNode, createContext, useState } from 'react';
 import { setCookie } from 'cookies-next';
+import { useRouter } from 'next/router';
+import { ReactNode, createContext, useEffect, useState } from 'react';
 
+import { REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/constants/cookies';
 import { SignInCredentials, authService } from '@/services/authService';
 import { User } from '@/types/user';
 
@@ -23,17 +24,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const router = useRouter();
 
+  useEffect(() => {
+    silentSignIn();
+  }, []);
+
+  async function silentSignIn() {
+    try {
+      const response = await authService.silentSignIn();
+
+      setUser(response);
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
   async function signIn(credentials: SignInCredentials) {
     try {
       const response = await authService.signIn(credentials);
 
       const { permissions, roles, refreshToken, token } = response;
 
-      setCookie('nextauth.token', token, {
+      setCookie(TOKEN_KEY, token, {
         maxAge: 60 * 60 * 24 * 30, // 30 days
         path: '/',
       });
-      setCookie('nextauth.refreshToken', refreshToken, {
+
+      setCookie(REFRESH_TOKEN_KEY, refreshToken, {
         maxAge: 60 * 60 * 24 * 30, // 30 days
         path: '/',
       });
@@ -43,6 +59,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         permissions,
         roles,
       });
+
+      authService.setAuthHeader(token);
 
       router.push('/dashboard');
     } catch (error) {

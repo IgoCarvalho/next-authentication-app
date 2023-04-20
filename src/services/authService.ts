@@ -17,6 +17,18 @@ async function signIn(credentials: SignInCredentials) {
   return response.data;
 }
 
+async function silentSignIn() {
+  const response = await api.get<User>('/me');
+
+  return response.data;
+}
+
+function setAuthHeader(token: string) {
+  api.defaults.headers['Authorization'] = `Bearer ${token}`;
+}
+
 export const authService = {
   signIn,
+  silentSignIn,
+  setAuthHeader,
 };
