@@ -1,9 +1,13 @@
 import axios, { AxiosError } from 'axios';
 import { getCookie } from 'cookies-next';
+import { OptionsType } from 'cookies-next/lib/types';
+import Router from 'next/router';
 
 import { TOKEN_EXPIRED_CODE } from '@/constants/api';
 import { REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/constants/cookies';
-import { authService } from './authService';
+import { isBrowser } from '@/utils/detectClient';
+import { setupAuthService } from './authService';
+import { AuthTokenError } from './errors/AuthTokenError';
 
 type ErrorResponse = {
   error: boolean;
@@ -16,70 +20,94 @@ type FailedRequest = {
   onFailure: (error: unknown) => void;
 };
 
-const token = getCookie(TOKEN_KEY);
+export type CookieContext = Pick<OptionsType, 'req' | 'res'> | undefined;
+
 let isRefreshing = false;
 let failedRequestsQueue: FailedRequest[] = [];
 
-export const api = axios.create({
-  baseURL: 'http://localhost:3333',
-  headers: {
-    Authorization: `Bearer ${token}`,
-  },
-});
+export function setupAPIClient(ctx?: CookieContext) {
+  const token = getCookie(TOKEN_KEY, { ...ctx });
 
-api.interceptors.response.use(
-  undefined,
-  async (error: AxiosError<ErrorResponse>) => {
-    if (!error.response) return Promise.reject(error);
+  const api = axios.create({
+    baseURL: 'http://localhost:3333',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
 
-    if (error.response.status === 401) {
-      if (
-        error.response.data &&
-        error.response.data.code === TOKEN_EXPIRED_CODE
-      ) {
-        const refreshToken = getCookie(REFRESH_TOKEN_KEY);
-        const originalConfig = error.config;
+  const authService = setupAuthService(api, ctx);
 
-        if (!isRefreshing) {
-          try {
+  api.interceptors.response.use(
+    undefined,
+    async (error: AxiosError<ErrorResponse>) => {
+      if (!error.response) return Promise.reject(error);
+
+      if (error.response.status === 401) {
+        if (
+          error.response.data &&
+          error.response.data.code === TOKEN_EXPIRED_CODE
+        ) {
+          const refreshToken = getCookie(REFRESH_TOKEN_KEY, { ...ctx });
+          const originalConfig = error.config;
+
+          if (!isRefreshing) {
             isRefreshing = true;
 
-            const response = await authService.refreshToken(
-              String(refreshToken)
-            );
+            authService
+              .refreshToken(String(refreshToken))
+              .then((response) => {
+                authService.persistTokens(
+                  response.token,
+                  response.refreshToken
+                );
+                authService.setAuthHeader(response.token);
 
-            authService.persistTokens(response.token, response.refreshToken);
-            authService.setAuthHeader(response.token);
+                failedRequestsQueue.forEach((request) =>
+                  request.onSuccess(response.token)
+                );
+              })
+              .catch((err) => {
+                failedRequestsQueue.forEach((request) =>
+                  request.onFailure(err)
+                );
 
-            failedRequestsQueue.forEach((request) =>
-              request.onSuccess(response.token)
-            );
-          } catch (err) {
-            failedRequestsQueue.forEach((request) => request.onFailure(err));
-          } finally {
-            isRefreshing = false;
-            failedRequestsQueue = [];
+                if (isBrowser()) {
+                  authService.clearTokens();
+                  Router.push('/');
+                }
+              })
+              .finally(() => {
+                isRefreshing = false;
+                failedRequestsQueue = [];
+              });
+          }
+
+          return new Promise((resolve, reject) => {
+            failedRequestsQueue.push({
+              onSuccess: (token) => {
+                if (originalConfig) {
+                  originalConfig.headers['Authorization'] = `Bearer ${token}`;
+                  resolve(api(originalConfig));
+                }
+              },
+              onFailure: (err) => {
+                reject(err);
+              },
+            });
+          });
+        } else {
+          if (isBrowser()) {
+            authService.clearTokens();
+            Router.push('/');
+          } else {
+            return Promise.reject(new AuthTokenError());
           }
         }
-
-        return new Promise((resolve, reject) => {
-          failedRequestsQueue.push({
-            onSuccess: (token) => {
-              if (originalConfig) {
-                originalConfig.headers['Authorization'] = `Bearer ${token}`;
-                resolve(api(originalConfig));
-              }
-            },
-            onFailure: (err) => {
-              reject(err);
-            },
-          });
-        });
-      } else {
-        authService.clearTokens();
       }
-    }
 
-    return Promise.reject(error);
-  }
-);
+      return Promise.reject(error);
+    }
+  );
+
+  return api;
+}
