@@ -1,6 +1,8 @@
+import { GetServerSideProps } from 'next';
 import { ChangeEvent, FormEvent, useState } from 'react';
 
 import { useAuth } from '@/hooks/useAuth';
+import { withSSRGuest } from '@/utils/withSSRGuest';
 
 export default function Home() {
   const [form, setForm] = useState({
@@ -52,3 +54,9 @@ export default function Home() {
     </main>
   );
 }
+
+export const getServerSideProps = withSSRGuest(async () => {
+  return {
+    props: {},
+  };
+});
