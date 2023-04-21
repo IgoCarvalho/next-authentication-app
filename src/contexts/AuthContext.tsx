@@ -1,8 +1,6 @@
-import { setCookie } from 'cookies-next';
 import { useRouter } from 'next/router';
 import { ReactNode, createContext, useEffect, useState } from 'react';
 
-import { REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/constants/cookies';
 import { SignInCredentials, authService } from '@/services/authService';
 import { User } from '@/types/user';
 
@@ -34,7 +32,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       setUser(response);
     } catch (error) {
-      console.log(error);
+      console.log('silentSignIn-error:', error);
+      authService.clearTokens();
+      router.push('/');
     }
   }
 
@@ -44,23 +44,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const { permissions, roles, refreshToken, token } = response;
 
-      setCookie(TOKEN_KEY, token, {
-        maxAge: 60 * 60 * 24 * 30, // 30 days
-        path: '/',
-      });
-
-      setCookie(REFRESH_TOKEN_KEY, refreshToken, {
-        maxAge: 60 * 60 * 24 * 30, // 30 days
-        path: '/',
-      });
+      authService.persistTokens(token, refreshToken);
+      authService.setAuthHeader(token);
 
       setUser({
         email: credentials.email,
         permissions,
         roles,
       });
-
-      authService.setAuthHeader(token);
 
       router.push('/dashboard');
     } catch (error) {
